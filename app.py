@@ -189,6 +189,12 @@ def command_exists(name: str) -> bool:
     return resolve_command(name) is not None
 
 
+def subprocess_no_window_kwargs() -> dict:
+    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def load_config() -> dict:
     if not APP_CONFIG_PATH.exists():
         return {"output_dir": str(DEFAULT_OUTPUT_DIR)}
@@ -309,6 +315,7 @@ def ffmpeg_available_muxers() -> set[str]:
             capture_output=True,
             text=True,
             check=False,
+            **subprocess_no_window_kwargs(),
         )
     except OSError:
         return set()
@@ -599,6 +606,7 @@ def ffmpeg_convert(file_bytes: bytes, source_name: str, target_ext: str, progres
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            **subprocess_no_window_kwargs(),
         )
         duration_seconds = 0.0
         error_lines: list[str] = []
@@ -662,7 +670,7 @@ def libreoffice_convert(file_bytes: bytes, source_name: str, target_ext: str):
             temp_dir,
             str(in_path),
         ]
-        process = subprocess.run(cmd, capture_output=True, text=True)
+        process = subprocess.run(cmd, capture_output=True, text=True, **subprocess_no_window_kwargs())
         if process.returncode != 0:
             error_text = process.stderr.strip() or process.stdout.strip() or "LibreOffice conversion failed."
             raise RuntimeError(error_text)
@@ -698,7 +706,7 @@ def inkscape_convert(file_bytes: bytes, source_name: str, target_ext: str):
             f"--export-type={target_ext}",
             f"--export-filename={out_path}",
         ]
-        process = subprocess.run(cmd, capture_output=True, text=True)
+        process = subprocess.run(cmd, capture_output=True, text=True, **subprocess_no_window_kwargs())
         if process.returncode != 0:
             error_text = process.stderr.strip() or process.stdout.strip() or "Inkscape conversion failed."
             raise RuntimeError(error_text)
@@ -796,7 +804,20 @@ def execute_conversion(
             if progress_cb:
                 progress_cb(index=index, total=total, current_file=source_name)
             try:
+                source_suffix = Path(source_name).suffix.lower()
                 if category in ("video", "audio", "image"):
+                    # FFmpeg liefert bei PDF->Bild häufig unklare Decoder-Fehler.
+                    # Leite diesen Fall gezielt auf Inkscape um (wenn möglich).
+                    if source_suffix == ".pdf" and category == "image":
+                        if target_ext not in INKSCAPE_VECTOR_TARGETS:
+                            raise RuntimeError(
+                                "PDF -> Bild wird nur für PNG unterstützt. "
+                                "Bitte Ziel-Format PNG wählen (Kategorie: Vektor)."
+                            )
+                        out_bytes, out_name = inkscape_convert(source_bytes, source_name, target_ext)
+                        results.append((out_name, out_bytes))
+                        continue
+
                     ffmpeg_progress_cb = None
                     if progress_cb:
                         ffmpeg_progress_cb = lambda p, idx=index, src=source_name: progress_cb(
