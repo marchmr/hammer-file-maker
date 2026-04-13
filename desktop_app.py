@@ -10,6 +10,20 @@ from werkzeug.serving import make_server
 from app import app
 
 
+def startup_log_path() -> Path:
+    log_dir = Path.home() / ".hammer_file_maker"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "startup_error.log"
+
+
+def append_startup_log(message: str):
+    try:
+        with startup_log_path().open("a", encoding="utf-8") as fh:
+            fh.write(message.rstrip() + "\n")
+    except Exception:
+        pass
+
+
 def resource_path(relative: str) -> Path:
     if getattr(sys, "frozen", False):
         base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
@@ -53,6 +67,7 @@ def apply_macos_icon(icon_path: Path):
 
 
 def main():
+    append_startup_log("=== App start ===")
     path_entries = [p for p in os.environ.get("PATH", "").split(":") if p]
     for p in (
         "/opt/homebrew/bin",
@@ -76,12 +91,14 @@ def main():
 
     server_thread = ServerThread(host, port)
     server_thread.start()
+    append_startup_log(f"Server started on {url}")
 
     # Small delay to ensure server is up before opening UI window.
     time.sleep(0.25)
 
     try:
         import webview
+        append_startup_log("pywebview imported")
 
         webview.create_window(
             "Hammer File Maker",
@@ -90,16 +107,17 @@ def main():
             height=860,
             min_size=(980, 700),
         )
+        append_startup_log("webview window created")
         webview.start(
             func=lambda: apply_macos_icon(icon_path),
             icon=str(icon_path) if icon_path.exists() else None,
         )
-    except Exception as exc:
+        append_startup_log("webview loop ended")
+    except BaseException as exc:
+        append_startup_log(f"webview failed: {exc!r}")
         import webbrowser
 
-        log_dir = Path.home() / ".hammer_file_maker"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / "startup_error.log"
+        log_path = startup_log_path()
         log_path.write_text(
             (
                 "Hammer File Maker startup error\n"
@@ -112,8 +130,15 @@ def main():
 
         try:
             webbrowser.open(url)
+            append_startup_log("browser fallback via webbrowser.open")
         except Exception:
             pass
+        if os.name == "nt":
+            try:
+                os.startfile(url)  # type: ignore[attr-defined]
+                append_startup_log("browser fallback via os.startfile")
+            except Exception:
+                pass
 
         try:
             import tkinter as tk
@@ -128,6 +153,7 @@ def main():
                 f"Fehlerlog: {log_path}",
             )
             root.destroy()
+            append_startup_log("tkinter error dialog shown")
         except Exception:
             pass
 
@@ -136,6 +162,7 @@ def main():
         while time.time() < end_at:
             time.sleep(0.25)
     finally:
+        append_startup_log("server shutdown")
         server_thread.shutdown()
 
 
