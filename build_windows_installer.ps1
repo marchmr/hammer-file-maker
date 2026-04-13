@@ -23,6 +23,7 @@ if (Test-Path .\dist) { Remove-Item .\dist -Recurse -Force }
   --noconfirm `
   --windowed `
   --name "Hammer File Maker" `
+  --icon ".\assets\app_icon.ico" `
   --add-data "templates;templates" `
   --add-data "static;static" `
   --add-data "assets;assets" `

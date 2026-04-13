@@ -66,6 +66,17 @@ def apply_macos_icon(icon_path: Path):
         pass
 
 
+def window_icon_for_platform() -> Path | None:
+    assets_dir = resource_path("assets")
+    if sys.platform == "win32":
+        candidate = assets_dir / "app_icon.ico"
+    elif sys.platform == "darwin":
+        candidate = assets_dir / "hammer_file_maker.icns"
+    else:
+        candidate = assets_dir / "app_icon.png"
+    return candidate if candidate.exists() else None
+
+
 def main():
     append_startup_log("=== App start ===")
     path_entries = [p for p in os.environ.get("PATH", "").split(":") if p]
@@ -87,7 +98,8 @@ def main():
     host = "127.0.0.1"
     port = free_port()
     url = f"http://{host}:{port}"
-    icon_path = resource_path("assets/app_icon.png")
+    icon_path = window_icon_for_platform()
+    append_startup_log(f"Resolved icon: {icon_path}")
 
     server_thread = ServerThread(host, port)
     server_thread.start()
@@ -108,10 +120,13 @@ def main():
             min_size=(980, 700),
         )
         append_startup_log("webview window created")
-        webview.start(
-            func=lambda: apply_macos_icon(icon_path),
-            icon=str(icon_path) if icon_path.exists() else None,
-        )
+        start_kwargs: dict = {}
+        if sys.platform == "darwin":
+            mac_icon = resource_path("assets/hammer_file_maker.icns")
+            start_kwargs["func"] = lambda: apply_macos_icon(mac_icon)
+        if icon_path is not None:
+            start_kwargs["icon"] = str(icon_path)
+        webview.start(**start_kwargs)
         append_startup_log("webview loop ended")
     except BaseException as exc:
         append_startup_log(f"webview failed: {exc!r}")
