@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hammer File Maker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <div class="brand">Hammer File Maker</div>
+        <div class="subbrand">Desktop Workflow</div>
+      </div>
+    </header>
+
+    <main class="wrap" id="workflow">
+      <section class="hero">
+        <h1>Hammer File Maker</h1>
+        <p>Skalieren, komprimieren und danach umwandeln. Jeder Schritt ist optional und läuft auch im Batch.</p>
+        <div class="engine-row">
+          <span class="engine {{ 'on' if capabilities.engines.ffmpeg else 'off' }}">FFmpeg {{ 'aktiv' if capabilities.engines.ffmpeg else 'fehlt' }}</span>
+          <span class="engine {{ 'on' if capabilities.engines.soffice else 'off' }}">LibreOffice {{ 'aktiv' if capabilities.engines.soffice else 'fehlt' }}</span>
+          <span class="engine {{ 'on' if capabilities.engines.inkscape else 'off' }}">Inkscape {{ 'aktiv' if capabilities.engines.inkscape else 'fehlt' }}</span>
+        </div>
+      </section>
+
+      {% if error %}
+      <div class="notice error">{{ error }}</div>
+      {% endif %}
+      {% if success %}
+      <div class="notice success">{{ success }}</div>
+      {% endif %}
+      {% if update_hint.needs_update %}
+      <div class="notice warning">
+        Update-Hinweis: Verfügbare Updates für {{ update_hint.items|join(', ') }}.
+        {% if update_hint.command %}
+        Empfohlen: <code>{{ update_hint.command }}</code>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <form method="post" action="/convert" enctype="multipart/form-data" class="shell" id="offline">
+        <section class="left">
+          <div class="block">
+            <div class="block-head">
+              <h2>Output-Verzeichnis</h2>
+            </div>
+            <label>Zielordner</label>
+            <input id="output-dir" type="text" value="{{ output_dir }}" />
+            <div class="row-2">
+              <button type="button" class="secondary-btn" onclick="saveOutputDir()">Speichern</button>
+              <button type="button" class="secondary-btn" onclick="pickOutputDir()">Ordner wählen</button>
+            </div>
+            <p class="help">Dieser Ordner wird dauerhaft gespeichert und für alle Verarbeitungen verwendet.</p>
+          </div>
+
+          <div class="block">
+            <div class="block-head">
+              <h2>Dateien</h2>
+              <span id="file-count" class="badge">0 Dateien</span>
+            </div>
+
+            <input id="files" type="file" name="files" multiple required onchange="updateFilePreview()" />
+            <label class="drop" for="files">
+              <span class="drop-main">Dateien wählen</span>
+              <span class="drop-sub">oder mehrere Dateien für Batch auswählen</span>
+            </label>
+
+            <div class="preview-line">
+              <strong>Erste Datei:</strong>
+              <span id="primary-file">Noch keine Datei gewählt</span>
+            </div>
+            <div class="uploaded-head">
+              <strong>Ausgewählte Dateien</strong>
+              <button type="button" class="text-btn" onclick="clearAllFiles()">Alle entfernen</button>
+            </div>
+            <ul id="uploaded-list" class="uploaded-list">
+              <li class="muted-item">Noch keine Dateien ausgewählt.</li>
+            </ul>
+          </div>
+
+          <div class="block">
+            <div class="block-head">
+              <h2>Modus</h2>
+            </div>
+            <div class="mode-row">
+              <label class="pill"><input type="radio" name="mode" value="image" checked onchange="toggleMode()" /> Bild-Pipeline</label>
+              <label class="pill"><input type="radio" name="mode" value="general" onchange="toggleMode()" /> Universal (FFmpeg)</label>
+            </div>
+          </div>
+
+          <button id="run-btn" type="submit" class="run-btn">Verarbeiten</button>
+          <div id="progress-box" class="progress-box hidden">
+            <div class="progress-head">
+              <strong id="progress-label">Warte auf Start...</strong>
+              <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <div id="current-file" class="progress-file">Aktuelle Datei: -</div>
+          </div>
+        </section>
+
+        <section class="right" id="image-flow">
+          <h2>Mehrstufiger Flow</h2>
+
+          <article class="step">
+            <div class="step-top">
+              <label class="step-toggle">
+                <input type="checkbox" name="enable_scale" value="1" onchange="toggleStep('scale')" />
+                <span>1. Skalieren</span>
+              </label>
+            </div>
+
+            <div id="step-scale" class="step-body hidden">
+              <label>Art der Skalierung</label>
+              <div class="row-3">
+                <label class="pill"><input type="radio" name="scale_mode" value="preset" checked onchange="toggleScaleMode()" /> Prozentual verkleinern</label>
+                <label class="pill"><input type="radio" name="scale_mode" value="custom" onchange="toggleScaleMode()" /> Eigene Größe</label>
+                <label class="pill"><input type="radio" name="scale_mode" value="none" onchange="toggleScaleMode()" /> Keine</label>
+              </div>
+
+              <div id="scale-preset">
+                <label>Zielgröße in % der Originalgröße</label>
+                <div class="scale-percent">
+                  <input
+                    id="scale-percent-range"
+                    type="range"
+                    min="10"
+                    max="100"
+                    value="50"
+                    step="1"
+                    oninput="syncScalePercent('range')"
+                  />
+                  <div class="scale-percent-number">
+                    <input
+                      id="scale-percent-number"
+                      type="number"
+                      min="10"
+                      max="100"
+                      step="1"
+                      value="50"
+                      name="scale_percent"
+                      oninput="syncScalePercent('number')"
+                    />
+                    <span>%</span>
+                  </div>
+                </div>
+                <p id="scale-percent-help" class="help">50% Zielgröße entspricht 50% Verkleinerung.</p>
+                <p class="help">Seitenverhältnis bleibt bei Prozent-Skalierung erhalten.</p>
+              </div>
+
+              <div id="scale-custom" class="row-2 hidden">
+                <div>
+                  <label>Breite</label>
+                  <input type="number" name="width" min="1" placeholder="z.B. 1920" />
+                </div>
+                <div>
+                  <label>Höhe</label>
+                  <input type="number" name="height" min="1" placeholder="z.B. 1080" />
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <div class="step-top">
+              <label class="step-toggle">
+                <input type="checkbox" name="enable_compress" value="1" onchange="toggleStep('compress')" />
+                <span>2. Komprimieren</span>
+              </label>
+            </div>
+
+            <div id="step-compress" class="step-body hidden">
+              <label>Komprimierung</label>
+              <div class="row-2">
+                <label class="pill"><input type="radio" name="compress_mode" value="lossless" checked /> Verlustfrei (wo möglich)</label>
+                <label class="pill"><input type="radio" name="compress_mode" value="lossy" /> Lossy mit Qualität</label>
+              </div>
+
+              <label>Qualität (nur für lossy)</label>
+              <input type="number" name="quality" min="1" max="100" value="82" />
+              <p class="help">Wenn nicht aktiviert, wird dieser Schritt übersprungen.</p>
+            </div>
+          </article>
+
+          <article class="step">
+            <div class="step-top">
+              <label class="step-toggle">
+                <input type="checkbox" name="enable_convert" value="1" onchange="toggleStep('convert')" />
+                <span>3. Umwandeln</span>
+              </label>
+            </div>
+
+            <div id="step-convert" class="step-body hidden">
+              <label>Ziel-Format</label>
+              <select name="image_target_format">
+                <option value="webp">WEBP</option>
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+                <option value="avif">AVIF</option>
+                <option value="gif">GIF</option>
+                <option value="bmp">BMP</option>
+                <option value="tiff">TIFF</option>
+              </select>
+              <p class="help">Wenn nicht aktiviert, bleibt das Originalformat erhalten.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="right hidden" id="general-flow">
+          <h2>Universal-Konvertierung</h2>
+          <article class="step">
+            <div class="step-body force-visible">
+              <label>Kategorie</label>
+              <select name="general_category" id="general-category" onchange="refreshGeneralFormats()">
+                <option value="image">Bild</option>
+                <option value="video" selected>Video</option>
+                <option value="audio">Audio</option>
+                <option value="document">Dokument</option>
+                <option value="vector">Vektor</option>
+              </select>
+
+              <label>Ziel-Format (Dateiendung)</label>
+              <select name="general_target_format" id="general-target"></select>
+              <p class="help">Die Liste ist nach lokal verfügbaren Tools gefiltert.</p>
+              <div class="info-box">
+                <h3>Sortiert nach Kategorien</h3>
+                <p>Bild, Video, Audio, Dokument und Vektor werden je nach lokaler Engine verfügbar.</p>
+                <div class="chips">
+                  <span>TS -> MP4</span>
+                  <span>MOV -> MP4</span>
+                  <span>MKV -> MP4</span>
+                  <span>MP4 -> WEBM</span>
+                  <span>WAV -> MP3</span>
+                  <span>FLAC -> AAC</span>
+                  <span>DOCX -> PDF</span>
+                  <span>SVG -> PDF</span>
+                </div>
+                <p class="help">Dokumente benötigen LibreOffice, Vektoren benötigen Inkscape.</p>
+              </div>
+            </div>
+          </article>
+        </section>
+      </form>
+    </main>
+
+    <script>
+      const capabilities = {{ capabilities|tojson }};
+      const MAX_UPLOAD_BYTES = {{ max_upload_bytes|int }};
+      const form = document.getElementById('offline');
+      const filesInput = document.getElementById('files');
+      let selectedFiles = [];
+      let pollingTimer = null;
+
+      function selectedMode() {
+        const selected = document.querySelector('input[name="mode"]:checked');
+        return selected ? selected.value : 'image';
+      }
+
+      function updateFilePreview() {
+        const primary = document.getElementById('primary-file');
+        const count = document.getElementById('file-count');
+        const list = document.getElementById('uploaded-list');
+
+        if (!selectedFiles.length) {
+          primary.textContent = 'Noch keine Datei gewählt';
+          count.textContent = '0 Dateien';
+          list.innerHTML = '<li class="muted-item">Noch keine Dateien ausgewählt.</li>';
+          return;
+        }
+
+        primary.textContent = selectedFiles[0].name;
+        const totalSizeText = formatBytes(totalSelectedBytes());
+        count.textContent = selectedFiles.length === 1
+          ? `1 Datei (${totalSizeText})`
+          : `${selectedFiles.length} Dateien (${totalSizeText})`;
+
+        list.innerHTML = '';
+        selectedFiles.forEach((file, index) => {
+          const li = document.createElement('li');
+          li.className = 'uploaded-item';
+          const sizeKb = Math.max(1, Math.round(file.size / 1024));
+          li.innerHTML = `
+            <span class="file-name">${file.name}</span>
+            <span class="file-meta">${sizeKb} KB</span>
+            <button type="button" class="remove-btn" onclick="removeFile(${index})">Entfernen</button>
+          `;
+          list.appendChild(li);
+        });
+      }
+
+      function syncFileInput() {
+        const dt = new DataTransfer();
+        selectedFiles.forEach((f) => dt.items.add(f));
+        filesInput.files = dt.files;
+      }
+
+      function totalSelectedBytes() {
+        return selectedFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+      }
+
+      function formatBytes(bytes) {
+        const safe = Math.max(0, Number(bytes) || 0);
+        if (safe < 1024) return `${Math.round(safe)} B`;
+        const units = ['KB', 'MB', 'GB', 'TB'];
+        let value = safe / 1024;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+          value /= 1024;
+          unitIndex += 1;
+        }
+        return `${value.toFixed(2)} ${units[unitIndex]}`;
+      }
+
+      function ensureUploadWithinLimit() {
+        const totalBytes = totalSelectedBytes();
+        if (totalBytes <= MAX_UPLOAD_BYTES) {
+          return true;
+        }
+        alert(
+          `Ausgewählte Dateien sind zu groß: ${formatBytes(totalBytes)} (${totalBytes} Bytes).\n` +
+          `Erlaubt sind maximal ${formatBytes(MAX_UPLOAD_BYTES)} (${MAX_UPLOAD_BYTES} Bytes) pro Upload.`
+        );
+        return false;
+      }
+
+      async function readResponsePayload(response) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          return response.json();
+        }
+        const rawText = await response.text();
+        return {
+          ok: false,
+          error: rawText && rawText.trim() ? rawText.trim() : `HTTP ${response.status}`,
+        };
+      }
+
+      function removeFile(index) {
+        selectedFiles = selectedFiles.filter((_, i) => i !== index);
+        syncFileInput();
+        updateFilePreview();
+      }
+
+      function clearAllFiles() {
+        selectedFiles = [];
+        syncFileInput();
+        updateFilePreview();
+      }
+
+      async function saveOutputDir() {
+        const outputDir = document.getElementById('output-dir').value.trim();
+        const payload = new URLSearchParams();
+        payload.set('output_dir', outputDir);
+        const response = await fetch('/set-output-dir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: payload.toString(),
+        });
+        const data = await response.json();
+        if (!data.ok) {
+          alert(data.error || 'Output-Verzeichnis konnte nicht gespeichert werden.');
+          return;
+        }
+        document.getElementById('output-dir').value = data.output_dir;
+        alert('Output-Verzeichnis gespeichert.');
+      }
+
+      async function pickOutputDir() {
+        const response = await fetch('/select-output-dir', { method: 'POST' });
+        const data = await response.json();
+        if (!data.ok) {
+          alert(data.error || 'Ordnerauswahl fehlgeschlagen.');
+          return;
+        }
+        document.getElementById('output-dir').value = data.output_dir;
+      }
+
+      function toggleMode() {
+        const image = document.getElementById('image-flow');
+        const general = document.getElementById('general-flow');
+        const imageMode = selectedMode() === 'image';
+        image.classList.toggle('hidden', !imageMode);
+        general.classList.toggle('hidden', imageMode);
+      }
+
+      function toggleStep(name) {
+        const checkbox = document.querySelector(`input[name="enable_${name}"]`);
+        const body = document.getElementById(`step-${name}`);
+        body.classList.toggle('hidden', !checkbox.checked);
+      }
+
+      function selectedScaleMode() {
+        const selected = document.querySelector('input[name="scale_mode"]:checked');
+        return selected ? selected.value : 'preset';
+      }
+
+      function toggleScaleMode() {
+        const mode = selectedScaleMode();
+        document.getElementById('scale-preset').classList.toggle('hidden', mode !== 'preset');
+        document.getElementById('scale-custom').classList.toggle('hidden', mode !== 'custom');
+      }
+
+      function syncScalePercent(source) {
+        const range = document.getElementById('scale-percent-range');
+        const number = document.getElementById('scale-percent-number');
+        const help = document.getElementById('scale-percent-help');
+
+        if (source === 'range') {
+          number.value = range.value;
+        } else {
+          let value = parseInt(number.value || '50', 10);
+          if (Number.isNaN(value)) {
+            value = 50;
+          }
+          value = Math.max(10, Math.min(100, value));
+          number.value = String(value);
+          range.value = String(value);
+        }
+
+        const targetPercent = parseInt(range.value, 10);
+        const reduction = 100 - targetPercent;
+        help.textContent = `${targetPercent}% Zielgröße entspricht ${reduction}% Verkleinerung.`;
+      }
+
+      function refreshGeneralFormats() {
+        const category = document.getElementById('general-category').value;
+        const target = document.getElementById('general-target');
+        const formats = (capabilities.categories && capabilities.categories[category]) || [];
+
+        target.innerHTML = '';
+
+        if (formats.length === 0) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'Keine Formate lokal verfügbar';
+          target.appendChild(option);
+          target.disabled = true;
+          return;
+        }
+
+        target.disabled = false;
+        for (const fmt of formats) {
+          const option = document.createElement('option');
+          option.value = fmt;
+          option.textContent = fmt.toUpperCase();
+          target.appendChild(option);
+        }
+      }
+
+      function updateProgressView(percent, label, currentFile) {
+        const box = document.getElementById('progress-box');
+        const fill = document.getElementById('progress-fill');
+        const percentEl = document.getElementById('progress-percent');
+        const labelEl = document.getElementById('progress-label');
+        const fileEl = document.getElementById('current-file');
+        box.classList.remove('hidden');
+        fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+        percentEl.textContent = `${Math.max(0, Math.min(100, percent))}%`;
+        labelEl.textContent = label || 'Verarbeite...';
+        fileEl.textContent = `Aktuelle Datei: ${currentFile || '-'}`;
+      }
+
+      async function pollJob(jobId) {
+        if (pollingTimer) {
+          clearInterval(pollingTimer);
+        }
+
+        pollingTimer = setInterval(async () => {
+          try {
+            const response = await fetch(`/job-status/${jobId}`);
+            const data = await response.json();
+            if (!data.ok) {
+              throw new Error(data.error || 'Statusabfrage fehlgeschlagen.');
+            }
+
+            updateProgressView(
+              data.percent || 0,
+              `${data.completed || 0} / ${data.total || 0} Dateien`,
+              data.current_file || ''
+            );
+
+            if (data.status === 'done') {
+              clearInterval(pollingTimer);
+              pollingTimer = null;
+              updateProgressView(100, 'Fertig', '');
+              alert(data.message || 'Verarbeitung abgeschlossen.');
+              window.location.reload();
+            } else if (data.status === 'error') {
+              clearInterval(pollingTimer);
+              pollingTimer = null;
+              alert(data.error || 'Verarbeitung fehlgeschlagen.');
+              const runBtn = document.getElementById('run-btn');
+              runBtn.disabled = false;
+              runBtn.textContent = 'Verarbeiten';
+            }
+          } catch (err) {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+            alert(err.message || 'Fehler beim Abrufen des Fortschritts.');
+            const runBtn = document.getElementById('run-btn');
+            runBtn.disabled = false;
+            runBtn.textContent = 'Verarbeiten';
+          }
+        }, 500);
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!selectedFiles.length) {
+          alert('Bitte mindestens eine Datei auswählen.');
+          return;
+        }
+        if (!ensureUploadWithinLimit()) {
+          return;
+        }
+        const runBtn = document.getElementById('run-btn');
+        runBtn.disabled = true;
+        runBtn.textContent = 'Verarbeite...';
+        updateProgressView(0, 'Starte Verarbeitung...', '');
+
+        const formData = new FormData(form);
+        try {
+          const response = await fetch('/start-job', {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await readResponsePayload(response);
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'Job konnte nicht gestartet werden.');
+          }
+          await pollJob(data.job_id);
+        } catch (err) {
+          alert(err.message || 'Verarbeitung konnte nicht gestartet werden.');
+          runBtn.disabled = false;
+          runBtn.textContent = 'Verarbeiten';
+        }
+      });
+
+      filesInput.addEventListener('change', () => {
+        const incoming = Array.from(filesInput.files || []);
+        if (!incoming.length) {
+          return;
+        }
+        selectedFiles = [...selectedFiles, ...incoming];
+        syncFileInput();
+        updateFilePreview();
+        if (totalSelectedBytes() > MAX_UPLOAD_BYTES) {
+          const bytes = totalSelectedBytes();
+          alert(
+            `Hinweis: Aktuelle Auswahl (${formatBytes(bytes)} / ${bytes} Bytes) überschreitet das Limit ` +
+            `von ${formatBytes(MAX_UPLOAD_BYTES)} / ${MAX_UPLOAD_BYTES} Bytes.`
+          );
+        }
+      });
+
+      toggleMode();
+      toggleScaleMode();
+      syncScalePercent('number');
+      refreshGeneralFormats();
+      updateFilePreview();
+    </script>
+  </body>
+</html>
