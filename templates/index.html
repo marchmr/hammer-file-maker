@@ -283,11 +283,23 @@
           const li = document.createElement('li');
           li.className = 'uploaded-item';
           const sizeKb = Math.max(1, Math.round(file.size / 1024));
-          li.innerHTML = `
-            <span class="file-name">${file.name}</span>
-            <span class="file-meta">${sizeKb} KB</span>
-            <button type="button" class="remove-btn" onclick="removeFile(${index})">Entfernen</button>
-          `;
+          const nameEl = document.createElement('span');
+          nameEl.className = 'file-name';
+          nameEl.textContent = file.name;
+
+          const metaEl = document.createElement('span');
+          metaEl.className = 'file-meta';
+          metaEl.textContent = `${sizeKb} KB`;
+
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'remove-btn';
+          removeBtn.textContent = 'Entfernen';
+          removeBtn.addEventListener('click', () => removeFile(index));
+
+          li.appendChild(nameEl);
+          li.appendChild(metaEl);
+          li.appendChild(removeBtn);
           list.appendChild(li);
         });
       }

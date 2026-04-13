@@ -94,12 +94,47 @@ def main():
             func=lambda: apply_macos_icon(icon_path),
             icon=str(icon_path) if icon_path.exists() else None,
         )
-    except Exception:
+    except Exception as exc:
         import webbrowser
 
-        webbrowser.open(url)
-        print(f"Desktop window not available. Browser opened at {url}")
-        input("Press Enter to close Hammer File Maker... ")
+        log_dir = Path.home() / ".hammer_file_maker"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "startup_error.log"
+        log_path.write_text(
+            (
+                "Hammer File Maker startup error\n"
+                f"URL: {url}\n"
+                f"Error: {exc}\n"
+                "Hinweis: Auf Windows wird meist Microsoft Edge WebView2 Runtime benötigt.\n"
+            ),
+            encoding="utf-8",
+        )
+
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "Hammer File Maker",
+                "Desktop-Fenster konnte nicht gestartet werden.\n\n"
+                "Bitte Microsoft Edge WebView2 Runtime installieren und die App erneut starten.\n"
+                f"Fehlerlog: {log_path}",
+            )
+            root.destroy()
+        except Exception:
+            pass
+
+        # Keep server alive for a while so browser fallback can load.
+        end_at = time.time() + 300
+        while time.time() < end_at:
+            time.sleep(0.25)
     finally:
         server_thread.shutdown()
 
