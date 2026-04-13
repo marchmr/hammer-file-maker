@@ -1,0 +1,36 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-macos-dmg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build macOS app bundle
+        run: |
+          chmod +x ./build_macos_app.sh
+          ./build_macos_app.sh
+
+      - name: Build DMG
+        run: |
+          chmod +x ./build_macos_dmg.sh
+          ./build_macos_dmg.sh
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hammer-File-Maker-macOS-dmg
+          path: dist/installers/Hammer-File-Maker-macOS.dmg
